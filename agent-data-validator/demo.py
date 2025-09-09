@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Demo script showing the agent-data-validator in action.
 Run this script to see examples of validation with both valid and invalid data.
@@ -58,101 +59,130 @@ def create_demo_data():
             "message": "Hello"
         },
         {
-            "turn_id": 2,
-            # Missing speaker
-            "message": "Hi there!"
+            "turn_id": "2",  # Should be integer, not string
+            "speaker": "bot",  # Invalid speaker (should be "assistant")
+            "assistant_reply": "Hi there!"
         },
         {
-            "turn_id": 3,
+            "turn_id": 4,  # Wrong sequence (should be 3)
+            "speaker": "user",
+            "message": "Can you search for something?"
+        },
+        {
+            "turn_id": 4,  # Duplicate turn_id
             "speaker": "assistant",
-            # Missing assistant_reply
+            "assistant_reply": "I'll search for that information.",
             "tool_used": "search",
-            "tool_input": "invalid input - should be dict"
+            "tool_input": {"query": "example"}
+            # Missing tool_output - incomplete tool usage
         }
     ]
     
     return valid_conversation, invalid_conversation
 
 
-def run_validation_demo():
-    """Run a comprehensive demo of the validation system."""
+def demonstrate_validation():
+    """Demonstrate the validator with various scenarios."""
     
-    print("=== Agent Data Validator Demo ===\n")
+    print("=" * 60)
+    print("🚀 AGENT DATA VALIDATOR DEMONSTRATION")
+    print("=" * 60)
     
-    # Create temporary files for demo
+    # Create demo data
     valid_data, invalid_data = create_demo_data()
     
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(valid_data, f, indent=2)
-        valid_file = f.name
-    
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        json.dump(invalid_data, f, indent=2)
-        invalid_file = f.name
+    # Create temporary files
+    valid_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    invalid_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
     
     try:
-        # Create validator with custom config
-        config = ValidationConfig(
-            min_turns=2,
-            max_turns=10,
-            min_message_length=5,
-            max_message_length=1000,
-            required_fields=['turn_id', 'speaker'],
-            allowed_speakers=['user', 'assistant']
+        # Write demo data to files
+        json.dump(valid_data, valid_file, indent=2)
+        json.dump(invalid_data, invalid_file, indent=2)
+        valid_file.close()
+        invalid_file.close()
+        
+        # Initialize validator
+        validator = AgentDataValidator()
+        
+        print("\n📋 SCENARIO 1: Validating VALID conversation data")
+        print("-" * 50)
+        
+        errors = validator.validate_file(valid_file.name)
+        print(f"Errors found: {len(errors)}")
+        print(validator.generate_report("console"))
+        
+        print("\n📋 SCENARIO 2: Validating INVALID conversation data")
+        print("-" * 50)
+        
+        errors = validator.validate_file(invalid_file.name)
+        print(f"Errors found: {len(errors)}")
+        print(validator.generate_report("console"))
+        
+        print("\n📋 SCENARIO 3: Custom configuration example")
+        print("-" * 50)
+        
+        # Create custom config that allows "system" speaker
+        custom_config = ValidationConfig(
+            valid_speakers=["user", "assistant", "system"],
+            optional_keys=["tool_used", "tool_input", "tool_output", "metadata", "timestamp"]
         )
         
-        validator = AgentDataValidator(config)
+        # Create data with system message
+        system_conversation = [
+            {
+                "turn_id": 1,
+                "speaker": "system",
+                "message": "You are a helpful assistant."
+            },
+            {
+                "turn_id": 2,
+                "speaker": "user", 
+                "message": "Hello!"
+            },
+            {
+                "turn_id": 3,
+                "speaker": "assistant",
+                "assistant_reply": "Hello! How can I help you today?"
+            }
+        ]
         
-        print("1. Validating VALID conversation data:")
-        print("-" * 40)
-        result = validator.validate_file(valid_file)
-        print(f"[VALID]: {result.is_valid}")
-        print(f"Total turns: {result.total_turns}")
-        print(f"Errors found: {len(result.errors)}")
-        print(f"Warnings: {len(result.warnings)}")
-        if result.warnings:
-            print("Warnings:")
-            for warning in result.warnings:
-                print(f"  - {warning}")
-        print()
+        system_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+        json.dump(system_conversation, system_file, indent=2)
+        system_file.close()
         
-        print("2. Validating INVALID conversation data:")
-        print("-" * 40)
-        result = validator.validate_file(invalid_file)
-        print(f"[INVALID]: {result.is_valid}")
-        print(f"Total turns: {result.total_turns}")
-        print(f"Errors found: {len(result.errors)}")
-        print("\nDetailed errors:")
-        for error in result.errors:
-            turn_info = f" (Turn {error.turn_id})" if error.turn_id else ""
-            field_info = f" [{error.field}]" if error.field else ""
-            print(f"  - {error.error_type.value}{turn_info}{field_info}: {error.message}")
+        # Validate with default config (should fail)
+        default_validator = AgentDataValidator()
+        errors_default = default_validator.validate_file(system_file.name)
+        print(f"With default config - Errors: {len(errors_default)}")
+        if errors_default:
+            print("❌ System speaker not allowed in default config")
         
-        if result.warnings:
-            print("\nWarnings:")
-            for warning in result.warnings:
-                print(f"  - {warning}")
-        print()
+        # Validate with custom config (should pass)
+        custom_validator = AgentDataValidator(custom_config)
+        errors_custom = custom_validator.validate_file(system_file.name)
+        print(f"With custom config - Errors: {len(errors_custom)}")
+        if not errors_custom:
+            print("✅ System speaker allowed in custom config")
         
-        print("3. Configuration details:")
-        print("-" * 40)
-        print(f"Minimum turns required: {config.min_turns}")
-        print(f"Maximum turns allowed: {config.max_turns}")
-        print(f"Message length range: {config.min_message_length}-{config.max_message_length}")
-        print(f"Required fields: {', '.join(config.required_fields)}")
-        print(f"Allowed speakers: {', '.join(config.allowed_speakers)}")
-        
-        print("\n=== Demo Complete ===")
-        print("\nTry running the validator on your own data:")
-        print("python validator.py your_data.json")
-        print("\nOr create example files to experiment with:")
-        print("python validator.py --create-examples")
+        # Clean up system file
+        os.unlink(system_file.name)
         
     finally:
         # Clean up temporary files
-        os.unlink(valid_file)
-        os.unlink(invalid_file)
+        os.unlink(valid_file.name)
+        os.unlink(invalid_file.name)
+    
+    print("\n" + "=" * 60)
+    print("✅ DEMONSTRATION COMPLETE")
+    print("=" * 60)
+    print("\nTo use the validator on your own data:")
+    print("1. python validator.py your_file.json")
+    print("2. python validator.py your_file.json --config custom_config.yaml")
+    print("3. python validator.py your_file.json --format markdown --output report.md")
+    print("\nTo create example files:")
+    print("python validator.py --create-examples")
 
 
 if __name__ == "__main__":
-    run_validation_demo()
+    demonstrate_validation()
